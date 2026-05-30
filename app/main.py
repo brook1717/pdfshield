@@ -1,8 +1,13 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.endpoints import router
+
+BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(
     title="pdfshield",
@@ -10,8 +15,16 @@ app = FastAPI(
     version="0.1.0",
 )
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-app.include_router(router, prefix="/api")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+app.include_router(router, prefix="/api/v1")
