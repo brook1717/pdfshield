@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -48,6 +48,15 @@ class PDFStructuralData(BaseModel):
 # Analysis
 # ---------------------------------------------------------------------------
 
+Severity = Literal["info", "warning", "danger"]
+
+
+class Finding(BaseModel):
+    check: str
+    status: Severity
+    details: list[str]
+
+
 class AnalysisRequest(BaseModel):
     filename: str
 
@@ -55,4 +64,4 @@ class AnalysisRequest(BaseModel):
 class AnalysisResponse(BaseModel):
     filename: str
     risk_score: float
-    findings: list[dict[str, Any]]
+    findings: list[Finding]
