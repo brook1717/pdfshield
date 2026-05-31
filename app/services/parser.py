@@ -74,18 +74,17 @@ def parse_pdf(file_path: str | Path) -> PDFStructuralData:
 def _pypdf_extract(path: Path) -> tuple[PDFMetadata, int]:
     """Use pypdf to read metadata and page count."""
     try:
-        reader = PdfReader(str(path))
+        with PdfReader(str(path)) as reader:
+            raw_meta = reader.metadata or {}
+            page_count = len(reader.pages)
     except Exception as exc:
         raise PDFParseError(f"pypdf could not open '{path.name}': {exc}") from exc
 
-    meta = reader.metadata or {}
-    page_count = len(reader.pages)
-
     metadata = PDFMetadata(
-        creator=_safe_str(meta.get("/Creator")),
-        producer=_safe_str(meta.get("/Producer")),
-        creation_date=_safe_str(meta.get("/CreationDate")),
-        mod_date=_safe_str(meta.get("/ModDate")),
+        creator=_safe_str(raw_meta.get("/Creator")),
+        producer=_safe_str(raw_meta.get("/Producer")),
+        creation_date=_safe_str(raw_meta.get("/CreationDate")),
+        mod_date=_safe_str(raw_meta.get("/ModDate")),
     )
 
     return metadata, page_count
