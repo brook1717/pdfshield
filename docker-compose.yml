@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  pdfshield:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdfshield_app
+    ports:
+      # host:container — remap host port if 8000 is already occupied
+      - "8000:8000"
+    volumes:
+      # Persist uploaded PDFs between container restarts
+      - ./uploads:/app/uploads
+      # Persist rotating log files on the host for post-mortem analysis
+      - ./logs:/app/logs
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:8000/api/v1/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

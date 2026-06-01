@@ -20,6 +20,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from app.exceptions import PDFParseError, PDFValidationError
 from app.models.schemas import ForensicReport
 from app.services.risk_engine import run_forensic_pipeline
 
@@ -109,6 +110,7 @@ async def upload_and_analyze(request: Request, file: UploadFile = File(...)):
             detail=f"File size {len(contents)} bytes exceeds the 10 MB limit.",
         )
 
+    filename = file.filename or "document.pdf"
     file_id = str(uuid.uuid4())
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOADS_DIR / f"{file_id}.pdf"
@@ -116,11 +118,50 @@ async def upload_and_analyze(request: Request, file: UploadFile = File(...)):
 
     try:
         report = run_forensic_pipeline(str(dest))
+    except PDFParseError:
+        logger.warning(
+            "Unparseable PDF submitted: filename=%s file_id=%s", filename, file_id
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "error": (
+                    "The PDF could not be parsed — it may be corrupted, "
+                    "password-protected, or not a valid PDF file."
+                )
+            },
+            status_code=422,
+        )
+    except PDFValidationError as exc:
+        logger.warning(
+            "PDF validation failed: filename=%s error=%s", filename, exc
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"error": f"PDF validation failed: {exc}"},
+            status_code=422,
+        )
     except Exception as exc:
-        logger.error("pipeline failed for %s: %s", file_id, exc)
-        raise HTTPException(status_code=500, detail="PDF processing failed.")
-
-    filename = file.filename or "document.pdf"
+        logger.error(
+            "Pipeline failed: filename=%s file_id=%s error=%s",
+            filename,
+            file_id,
+            exc,
+            exc_info=True,
+        )
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "error": (
+                    "An unexpected error occurred during analysis. "
+                    "The file may be malformed or use unsupported features."
+                )
+            },
+            status_code=500,
+        )
     _reports[file_id]   = report
     _filenames[file_id] = filename
 
