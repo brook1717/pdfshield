@@ -65,3 +65,28 @@ class AnalysisResponse(BaseModel):
     filename: str
     risk_score: float
     findings: list[Finding]
+
+
+# ---------------------------------------------------------------------------
+# Risk assessment
+# ---------------------------------------------------------------------------
+
+ColorCode = Literal["GREEN", "YELLOW", "RED"]
+
+
+class RiskAssessment(BaseModel):
+    color_code: ColorCode
+    total_findings: int = Field(description="Total number of check results included")
+    suspicious_count: int = Field(
+        description="Number of findings whose status is 'warning' or 'danger'"
+    )
+    check_results: dict[str, Severity] = Field(
+        description="Mapping of check name to its severity status"
+    )
+    conclusion: str = Field(description="Short generated textual conclusion")
+
+
+class ForensicReport(BaseModel):
+    file_path: str
+    findings: list[Finding]
+    risk: RiskAssessment
