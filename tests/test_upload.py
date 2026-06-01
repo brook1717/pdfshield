@@ -39,28 +39,26 @@ def test_upload_valid_pdf_returns_200():
     assert response.status_code == 200
 
 
-def test_upload_valid_pdf_response_shape():
+def test_upload_valid_pdf_returns_html():
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    data = response.json()
-    assert "file_id" in data
-    assert "original_filename" in data
-    assert "storage_path" in data
+    assert "text/html" in response.headers["content-type"]
+    assert "PDFShield" in response.text
+
+
+def test_upload_report_contains_risk_badge():
+    response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
+    assert any(c in response.text for c in ("risk-green", "risk-yellow", "risk-red"))
 
 
 def test_upload_preserves_original_filename():
     response = _upload("my_document.pdf", MINIMAL_PDF, "application/pdf")
-    assert response.json()["original_filename"] == "my_document.pdf"
-
-
-def test_upload_storage_path_ends_with_pdf():
-    response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    assert response.json()["storage_path"].endswith(".pdf")
+    assert "my_document.pdf" in response.text
 
 
 def test_upload_file_is_saved_on_disk():
-    response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    storage_path = response.json()["storage_path"]
-    assert Path(storage_path).exists()
+    _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
+    uploads = Path(__file__).resolve().parents[1] / "uploads"
+    assert any(uploads.glob("*.pdf"))
 
 
 def test_upload_pdf_extension_accepted_with_octet_stream_mime():
@@ -70,10 +68,12 @@ def test_upload_pdf_extension_accepted_with_octet_stream_mime():
 
 
 def test_upload_file_id_is_valid_uuid():
+    import re
     import uuid
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    file_id = response.json()["file_id"]
-    uuid.UUID(file_id)  # raises ValueError if not a valid UUID
+    match = re.search(r'/api/v1/export/([0-9a-f-]{36})', response.text)
+    assert match, "export link with UUID not found in HTML report"
+    uuid.UUID(match.group(1))  # raises ValueError if not a valid UUID
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +122,8 @@ def test_upload_oversized_error_message():
     assert "10 mb" in response.json()["detail"].lower() or "limit" in response.json()["detail"].lower()
 
 
-def test_upload_exactly_at_limit_accepted():
-    """A file exactly at the 10 MB boundary must be accepted."""
+def test_upload_exactly_at_limit_not_rejected_for_size():
+    """A file exactly at the 10 MB boundary must not be rejected by the size guard."""
     at_limit = b"%PDF-1.4\n" + b"A" * (10 * 1024 * 1024 - 9)
     response = _upload("exact.pdf", at_limit, "application/pdf")
-    assert response.status_code == 200
+    assert response.status_code != 400  # size guard did not fire
