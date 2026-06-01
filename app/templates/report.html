@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDFShield — Report · {{ filename }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:            #f1f5f9;
+      --surface:       #ffffff;
+      --border:        #e2e8f0;
+      --text:          #0f172a;
+      --text-muted:    #64748b;
+      --radius:        14px;
+      --radius-sm:     8px;
+      --radius-xs:     6px;
+      --shadow:        0 2px 8px rgba(15,23,42,.07), 0 1px 2px rgba(15,23,42,.04);
+      --shadow-lg:     0 8px 32px rgba(15,23,42,.1);
+      --transition:    .15s ease;
+
+      /* Risk palette */
+      --green:         #16a34a;
+      --green-bg:      #f0fdf4;
+      --green-border:  #86efac;
+      --green-glow:    rgba(22,163,74,.12);
+      --yellow:        #b45309;
+      --yellow-bg:     #fffbeb;
+      --yellow-border: #fcd34d;
+      --yellow-glow:   rgba(180,83,9,.1);
+      --red:           #b91c1c;
+      --red-bg:        #fef2f2;
+      --red-border:    #fca5a5;
+      --red-glow:      rgba(185,28,28,.1);
+
+      /* Status palette */
+      --s-info:       #2563eb;
+      --s-info-bg:    #eff6ff;
+      --s-info-b:     #bfdbfe;
+      --s-warn:       #d97706;
+      --s-warn-bg:    #fffbeb;
+      --s-warn-b:     #fde68a;
+      --s-danger:     #dc2626;
+      --s-danger-bg:  #fef2f2;
+      --s-danger-b:   #fecaca;
+
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Topbar ─────────────────────────────────────────────── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: .85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .topbar-back {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .88rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: .35rem .7rem;
+      border-radius: var(--radius-xs);
+      transition: background var(--transition), color var(--transition);
+      white-space: nowrap;
+    }
+    .topbar-back:hover { background: var(--bg); color: var(--text); }
+    .topbar-filename {
+      flex: 1;
+      font-size: .9rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+    }
+    .topbar-filename span {
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .45rem 1rem;
+      border-radius: var(--radius-xs);
+      background: var(--text);
+      color: #fff;
+      font-size: .85rem;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: opacity var(--transition), transform var(--transition);
+    }
+    .download-btn:hover { opacity: .85; transform: translateY(-1px); }
+
+    /* ── Page layout ────────────────────────────────────────── */
+    .page { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    /* ── Risk banner ────────────────────────────────────────── */
+    .risk-banner {
+      border-radius: var(--radius);
+      padding: 2rem 2.5rem;
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      margin-bottom: 1.75rem;
+      border: 1.5px solid;
+    }
+    .risk-banner.risk-green {
+      background: var(--green-bg);
+      border-color: var(--green-border);
+      box-shadow: 0 0 0 6px var(--green-glow);
+    }
+    .risk-banner.risk-yellow {
+      background: var(--yellow-bg);
+      border-color: var(--yellow-border);
+      box-shadow: 0 0 0 6px var(--yellow-glow);
+    }
+    .risk-banner.risk-red {
+      background: var(--red-bg);
+      border-color: var(--red-border);
+      box-shadow: 0 0 0 6px var(--red-glow);
+    }
+
+    .risk-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .3rem;
+      flex-shrink: 0;
+    }
+    .risk-icon {
+      font-size: 2.6rem;
+      line-height: 1;
+    }
+    .risk-label {
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: .2rem .7rem;
+      border-radius: var(--radius-xs);
+      border: 2px solid;
+    }
+    .risk-banner.risk-green  .risk-label { color: var(--green);  border-color: var(--green);  background: #fff; }
+    .risk-banner.risk-yellow .risk-label { color: var(--yellow); border-color: var(--yellow); background: #fff; }
+    .risk-banner.risk-red    .risk-label { color: var(--red);    border-color: var(--red);    background: #fff; }
+
+    .risk-text { flex: 1; }
+    .risk-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: .5rem;
+    }
+    .risk-banner.risk-green  .risk-title { color: var(--green); }
+    .risk-banner.risk-yellow .risk-title { color: var(--yellow); }
+    .risk-banner.risk-red    .risk-title { color: var(--red); }
+    .risk-conclusion {
+      font-size: .95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .risk-meta {
+      margin-top: .75rem;
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .risk-meta-item {
+      font-size: .8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: .3rem;
+    }
+    .risk-meta-item strong { color: var(--text); }
+
+    /* ── Stats row ──────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1.25rem 1rem;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .stat-value {
+      display: block;
+      font-size: 2rem;
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--text);
+      letter-spacing: -.03em;
+    }
+    .stat-value.suspicious { color: var(--s-danger); }
+    .stat-label {
+      display: block;
+      margin-top: .35rem;
+      font-size: .78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+    }
+
+    /* ── Section header ─────────────────────────────────────── */
+    .section-header {
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: .9rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .section-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Findings grid ──────────────────────────────────────── */
+    .findings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.25rem;
+    }
+
+    /* ── Finding card ───────────────────────────────────────── */
+    .finding-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border-left: 4px solid var(--border);
+      transition: box-shadow var(--transition);
+    }
+    .finding-card:hover { box-shadow: var(--shadow-lg); }
+    .finding-card.status-info    { border-left-color: var(--s-info); }
+    .finding-card.status-warning { border-left-color: var(--s-warn); }
+    .finding-card.status-danger  { border-left-color: var(--s-danger); }
+
+    .finding-header {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: 1rem 1.25rem .85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .finding-icon {
+      font-size: 1.3rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .finding-name {
+      flex: 1;
+      font-size: .95rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* Status pill */
+    .status-pill {
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: .25rem .65rem;
+      border-radius: var(--radius-xs);
+      border: 1.5px solid;
+      flex-shrink: 0;
+    }
+    .status-pill.info    { color: var(--s-info);   background: var(--s-info-bg);   border-color: var(--s-info-b); }
+    .status-pill.warning { color: var(--s-warn);   background: var(--s-warn-bg);   border-color: var(--s-warn-b); }
+    .status-pill.danger  { color: var(--s-danger); background: var(--s-danger-bg); border-color: var(--s-danger-b); }
+
+    /* Finding body */
+    .finding-body { padding: 1rem 1.25rem; flex: 1; }
+    .finding-clean {
+      font-size: .88rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .finding-clean::before {
+      content: '✓';
+      display: inline-flex;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #dcfce7;
+      color: var(--green);
+      font-size: .75rem;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .details-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+    }
+    .details-list li {
+      font-size: .84rem;
+      line-height: 1.55;
+      color: var(--text);
+      background: var(--bg);
+      border-radius: var(--radius-xs);
+      padding: .6rem .85rem;
+      border-left: 3px solid var(--border);
+    }
+    .finding-card.status-warning .details-list li { border-left-color: var(--s-warn); }
+    .finding-card.status-danger  .details-list li { border-left-color: var(--s-danger); }
+    .finding-card.status-info    .details-list li { border-left-color: var(--s-info); }
+
+    /* ── File info bar ──────────────────────────────────────── */
+    .file-info-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: .9rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+      box-shadow: var(--shadow);
+      flex-wrap: wrap;
+    }
+    .file-info-icon { font-size: 1.6rem; flex-shrink: 0; }
+    .file-info-meta { flex: 1; min-width: 0; }
+    .file-info-name {
+      font-size: .95rem;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-info-sub {
+      font-size: .78rem;
+      color: var(--text-muted);
+      margin-top: .15rem;
+    }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 720px) {
+      .risk-banner { flex-direction: column; text-align: center; gap: 1rem; }
+      .risk-meta   { justify-content: center; }
+      .stats-row   { grid-template-columns: repeat(2, 1fr); }
+      .findings-grid { grid-template-columns: 1fr; }
+      .page { padding: 1.25rem 1rem 3rem; }
+      .topbar { padding: .75rem 1rem; }
+      .topbar-filename { display: none; }
+    }
+    @media (max-width: 420px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Topbar ─────────────────────────────────────────────── -->
+  <nav class="topbar">
+    <a class="topbar-back" href="/">← New Analysis</a>
+    <span class="topbar-filename">
+      <span>Report for</span> {{ filename }}
+    </span>
+    <a class="download-btn"
+       href="/report/{{ file_id }}/download"
+       download="pdfshield-{{ file_id[:8] }}.json">
+      ⬇ Download JSON
+    </a>
+  </nav>
+
+  <main class="page">
+
+    <!-- ── File info bar ──────────────────────────────────────── -->
+    <div class="file-info-bar">
+      <div class="file-info-icon">📄</div>
+      <div class="file-info-meta">
+        <div class="file-info-name">{{ filename }}</div>
+        <div class="file-info-sub">
+          {{ report.risk.total_findings }} checks executed
+          &nbsp;·&nbsp;
+          {{ report.risk.suspicious_count }} suspicious indicator{{ 's' if report.risk.suspicious_count != 1 }}
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Risk banner ────────────────────────────────────────── -->
+    {% set code = report.risk.color_code %}
+    {% if code == "GREEN" %}
+      {% set risk_icon = "✅" %}
+      {% set risk_title = "No Tampering Detected" %}
+    {% elif code == "YELLOW" %}
+      {% set risk_icon = "⚠️" %}
+      {% set risk_title = "Minor Anomaly Found" %}
+    {% else %}
+      {% set risk_icon = "🚨" %}
+      {% set risk_title = "Tampering Indicators Detected" %}
+    {% endif %}
+
+    <div class="risk-banner risk-{{ code | lower }}">
+      <div class="risk-badge">
+        <span class="risk-icon">{{ risk_icon }}</span>
+        <span class="risk-label">{{ code }}</span>
+      </div>
+      <div class="risk-text">
+        <div class="risk-title">{{ risk_title }}</div>
+        <p class="risk-conclusion">{{ report.risk.conclusion }}</p>
+        <div class="risk-meta">
+          <span class="risk-meta-item">
+            📋 <strong>{{ report.risk.total_findings }}</strong> checks run
+          </span>
+          <span class="risk-meta-item">
+            🔴 <strong>{{ report.findings | selectattr('status', 'equalto', 'danger') | list | length }}</strong> critical
+          </span>
+          <span class="risk-meta-item">
+            🟡 <strong>{{ report.findings | selectattr('status', 'equalto', 'warning') | list | length }}</strong> warnings
+          </span>
+          <span class="risk-meta-item">
+            🟢 <strong>{{ report.findings | selectattr('status', 'equalto', 'info') | list | length }}</strong> clean
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Stats row ──────────────────────────────────────────── -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <span class="stat-value">{{ report.risk.total_findings }}</span>
+        <span class="stat-label">Checks Run</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value {{ 'suspicious' if report.risk.suspicious_count > 0 }}">
+          {{ report.risk.suspicious_count }}
+        </span>
+        <span class="stat-label">Suspicious</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value {{ 'suspicious' if report.findings | selectattr('status', 'equalto', 'danger') | list | length > 0 }}">
+          {{ report.findings | selectattr('status', 'equalto', 'danger') | list | length }}
+        </span>
+        <span class="stat-label">Critical</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">
+          {{ report.findings | selectattr('status', 'equalto', 'warning') | list | length }}
+        </span>
+        <span class="stat-label">Warnings</span>
+      </div>
+    </div>
+
+    <!-- ── Analysis breakdown ─────────────────────────────────── -->
+    <p class="section-header">Analysis Breakdown</p>
+
+    <div class="findings-grid">
+      {% for finding in report.findings %}
+      <div class="finding-card status-{{ finding.status }}">
+
+        <div class="finding-header">
+          <span class="finding-icon">
+            {{ check_icons.get(finding.check, '🔎') }}
+          </span>
+          <span class="finding-name">
+            {{ check_labels.get(finding.check, finding.check | replace('_', ' ') | title) }}
+          </span>
+          <span class="status-pill {{ finding.status }}">
+            {{ finding.status | upper }}
+          </span>
+        </div>
+
+        <div class="finding-body">
+          {% if finding.details %}
+          <ul class="details-list">
+            {% for detail in finding.details %}
+            <li>{{ detail }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="finding-clean">No anomalies detected.</p>
+          {% endif %}
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+
+  </main>
+
+</body>
+</html>
