@@ -1,16 +1,6 @@
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
-
-
-# ---------------------------------------------------------------------------
-# Upload
-# ---------------------------------------------------------------------------
-
-class UploadResponse(BaseModel):
-    file_id: str
-    original_filename: str
-    storage_path: str
 
 
 # ---------------------------------------------------------------------------
@@ -55,16 +45,6 @@ class Finding(BaseModel):
     check: str
     status: Severity
     details: list[str]
-
-
-class AnalysisRequest(BaseModel):
-    filename: str
-
-
-class AnalysisResponse(BaseModel):
-    filename: str
-    risk_score: float
-    findings: list[Finding]
 
 
 # ---------------------------------------------------------------------------

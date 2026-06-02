@@ -17,14 +17,14 @@ B. POST /api/v1/upload  — 202 Accepted + async job dispatch
 C. GET /api/v1/export/{job_id}  — JSON forensic report download
 D. GET /api/v1/health   — service liveness
 E. Error handling
+F. Page routes — GET /processing/{job_id} and GET /report/{job_id}
+G. End-to-end critical path
 """
 from __future__ import annotations
 
 import io
-import re
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -151,7 +151,6 @@ def test_upload_completed_job_has_timestamps():
 
 
 def test_upload_file_saved_to_uploads_dir():
-    import re
     from pathlib import Path
     _upload()
     uploads = Path(__file__).resolve().parents[1] / "uploads"
@@ -159,7 +158,7 @@ def test_upload_file_saved_to_uploads_dir():
 
 
 # ---------------------------------------------------------------------------
-# C. GET /api/v1/export/{file_id} — JSON download
+# C. GET /api/v1/export/{job_id} — JSON download
 # ---------------------------------------------------------------------------
 
 def test_export_returns_200():
@@ -246,13 +245,13 @@ def test_export_invalid_id_returns_404():
 
 
 def test_export_after_second_upload_returns_correct_report():
-    """Each upload gets its own isolated file_id / report."""
+    """Each upload gets its own isolated job_id / report."""
     _, fid1 = _upload_and_get_id("doc_a.pdf")
     _, fid2 = _upload_and_get_id("doc_b.pdf")
     assert fid1 != fid2
     d1 = client.get(f"/api/v1/export/{fid1}").json()
     d2 = client.get(f"/api/v1/export/{fid2}").json()
-    assert "doc_a.pdf" in d1["file_path"] or True  # different file_ids = different reports
+    assert "doc_a.pdf" in d1["file_path"] or True  # different job_ids = different reports
     assert d1["risk"]["color_code"] in ("GREEN", "YELLOW", "RED")
     assert d2["risk"]["color_code"] in ("GREEN", "YELLOW", "RED")
 
@@ -383,3 +382,72 @@ def test_report_page_redirects_pending_job_to_processing():
     resp = client.get(f"/report/{jid}", follow_redirects=False)
     assert resp.status_code in (302, 307)
     assert f"/processing/{jid}" in resp.headers.get("location", "")
+
+
+# ---------------------------------------------------------------------------
+# G. End-to-end critical path
+# ---------------------------------------------------------------------------
+
+
+def test_critical_path_upload_to_report():
+    """
+    Full end-to-end exercise of the critical path:
+
+        POST /api/v1/upload
+            → 202 Accepted  +  job_id
+        GET  /api/v1/status/{job_id}
+            → status=COMPLETED, risk_level in GREEN|YELLOW|RED
+        GET  /api/v1/export/{job_id}
+            → JSON with 5 findings, each with check/status/details
+        GET  /report/{job_id}
+            → 200 HTML containing risk banner, filename, and download link
+
+    TestClient runs BackgroundTasks synchronously, so the job is already
+    COMPLETED by the time the first status poll executes.
+    """
+    # Step 1 — upload
+    upload_resp = _upload("critical_path.pdf")
+    assert upload_resp.status_code == 202, f"upload returned {upload_resp.status_code}"
+    body = upload_resp.json()
+    assert "job_id" in body
+    assert body["status"] == "PENDING"
+    assert body["filename"] == "critical_path.pdf"
+    job_id = body["job_id"]
+    uuid.UUID(job_id)  # must be a valid UUID
+
+    # Step 2 — status shows COMPLETED (background task ran synchronously)
+    status_resp = client.get(f"/api/v1/status/{job_id}")
+    assert status_resp.status_code == 200
+    status = status_resp.json()
+    assert status["status"] == "COMPLETED"
+    assert status["risk_level"] in ("GREEN", "YELLOW", "RED")
+    assert status["job_id"] == job_id
+    assert status["created_at"]
+    assert status["updated_at"]
+
+    # Step 3 — export returns a valid ForensicReport JSON
+    export_resp = client.get(f"/api/v1/export/{job_id}")
+    assert export_resp.status_code == 200
+    report = export_resp.json()
+    assert "findings" in report
+    assert len(report["findings"]) == 5
+    for finding in report["findings"]:
+        assert finding["check"] in (
+            "metadata_analysis",
+            "text_layer_analysis",
+            "font_consistency",
+            "coordinate_alignment",
+            "hidden_overlay_detection",
+        )
+        assert finding["status"] in ("info", "warning", "danger")
+        assert isinstance(finding["details"], list)
+    assert report["risk"]["color_code"] in ("GREEN", "YELLOW", "RED")
+
+    # Step 4 — report page renders correctly
+    report_resp = client.get(f"/report/{job_id}")
+    assert report_resp.status_code == 200
+    html = report_resp.text
+    assert "critical_path.pdf" in html
+    assert "/api/v1/export/" in html          # download link present
+    assert any(c in html for c in ("risk-green", "risk-yellow", "risk-red"))  # risk banner
+    assert "Analysis Breakdown" in html       # findings section rendered
