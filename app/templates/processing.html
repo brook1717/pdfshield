@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDFShield — Analyzing {{ filename }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #f1f5f9;
+      --surface:      #ffffff;
+      --border:       #e2e8f0;
+      --text:         #0f172a;
+      --text-muted:   #64748b;
+      --accent:       #3b82f6;
+      --accent-dark:  #1d4ed8;
+      --accent-light: #eff6ff;
+      --green:        #16a34a;
+      --green-light:  #f0fdf4;
+      --green-border: #86efac;
+      --red:          #dc2626;
+      --red-light:    #fef2f2;
+      --red-border:   #fca5a5;
+      --radius:       14px;
+      --radius-sm:    8px;
+      --radius-xs:    6px;
+      --shadow:       0 4px 24px rgba(15,23,42,.08);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    /* ── Brand ─────────────────────────────────────────────── */
+    .brand { text-align: center; margin-bottom: 2rem; }
+    .brand-icon {
+      font-size: 2.2rem;
+      line-height: 1;
+      margin-bottom: .4rem;
+      filter: drop-shadow(0 2px 8px rgba(59,130,246,.3));
+    }
+    .brand h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -.03em;
+    }
+
+    /* ── Card ───────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    /* ── Animated orb ───────────────────────────────────────── */
+    .orb-wrap {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .orb-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-right-color: var(--accent);
+      animation: spin 1.1s linear infinite;
+    }
+    .orb-icon {
+      font-size: 2.6rem;
+      line-height: 1;
+      animation: breathe 2.4s ease-in-out infinite;
+      position: relative;
+      z-index: 1;
+    }
+    @keyframes spin    { to { transform: rotate(360deg); } }
+    @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+    /* ── Title ──────────────────────────────────────────────── */
+    .processing-title {
+      font-size: 1.2rem;
+      font-weight: 800;
+      margin-bottom: .4rem;
+      color: var(--text);
+    }
+    .processing-file {
+      font-size: .88rem;
+      color: var(--accent);
+      font-weight: 600;
+      background: var(--accent-light);
+      display: inline-block;
+      padding: .25rem .75rem;
+      border-radius: var(--radius-xs);
+      margin-bottom: 1.75rem;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Step list ──────────────────────────────────────────── */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: .45rem;
+      text-align: left;
+      margin-bottom: 1.5rem;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      font-size: .86rem;
+      color: var(--text-muted);
+      padding: .5rem .85rem;
+      border-radius: var(--radius-xs);
+      background: var(--bg);
+      opacity: .38;
+      transition: opacity .35s ease, background .35s ease, color .35s ease;
+      border-left: 3px solid transparent;
+    }
+    .step-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .65rem;
+      flex-shrink: 0;
+    }
+    .step.active {
+      opacity: 1;
+      color: var(--accent);
+      background: var(--accent-light);
+      border-left-color: var(--accent);
+    }
+    .step.active .step-dot { animation: pulse-dot 1s ease-in-out infinite; }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,.4); }
+      50%       { box-shadow: 0 0 0 4px rgba(59,130,246,.1); }
+    }
+    .step.done {
+      opacity: 1;
+      color: var(--green);
+      background: var(--green-light);
+      border-left-color: var(--green-border);
+    }
+    .step.done .step-dot {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .step-label { flex: 1; }
+
+    /* ── Hint ───────────────────────────────────────────────── */
+    .processing-hint {
+      font-size: .8rem;
+      color: var(--text-muted);
+      margin-top: .5rem;
+    }
+
+    /* ── Failed state ───────────────────────────────────────── */
+    #failed-state { display: none; }
+    #failed-state.visible { display: block; }
+    .fail-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .fail-title {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--red);
+      margin-bottom: .5rem;
+    }
+    .fail-msg {
+      font-size: .9rem;
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      line-height: 1.6;
+    }
+    .retry-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .65rem 1.5rem;
+      border-radius: var(--radius-xs);
+      background: var(--text);
+      color: #fff;
+      font-size: .9rem;
+      font-weight: 700;
+      text-decoration: none;
+      transition: opacity .15s ease;
+    }
+    .retry-btn:hover { opacity: .85; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .page-footer {
+      margin-top: 2rem;
+      font-size: .78rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .page-footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 480px) {
+      .card { padding: 1.75rem 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="brand">
+    <div class="brand-icon">🛡️</div>
+    <h1>PDFShield</h1>
+  </header>
+
+  <main class="card">
+
+    <!-- ── Processing state ────────────────────────────────── -->
+    <div id="processing-state">
+
+      <div class="orb-wrap">
+        <div class="orb-ring"></div>
+        <div class="orb-icon">🔍</div>
+      </div>
+
+      <h2 class="processing-title">Analyzing Document</h2>
+      <p class="processing-file">{{ filename }}</p>
+
+      <div class="steps" id="steps">
+        <div class="step" id="step-0">
+          <span class="step-dot"></span>
+          <span class="step-label">📋 Parsing metadata &amp; creator fingerprint</span>
+        </div>
+        <div class="step" id="step-1">
+          <span class="step-dot"></span>
+          <span class="step-label">📄 Extracting text layer</span>
+        </div>
+        <div class="step" id="step-2">
+          <span class="step-dot"></span>
+          <span class="step-label">🔤 Font consistency analysis</span>
+        </div>
+        <div class="step" id="step-3">
+          <span class="step-dot"></span>
+          <span class="step-label">📐 Coordinate alignment scan</span>
+        </div>
+        <div class="step" id="step-4">
+          <span class="step-dot"></span>
+          <span class="step-label">🔍 Hidden overlay detection</span>
+        </div>
+        <div class="step" id="step-5">
+          <span class="step-dot"></span>
+          <span class="step-label">🖼 Generating annotated visual report</span>
+        </div>
+      </div>
+
+      <p class="processing-hint">Analysis typically completes in a few seconds…</p>
+
+    </div>
+
+    <!-- ── Failed state ─────────────────────────────────────── -->
+    <div id="failed-state">
+      <div class="fail-icon">⚠️</div>
+      <h2 class="fail-title">Analysis Failed</h2>
+      <p class="fail-msg">
+        The document could not be analyzed. It may be corrupted, password-protected,
+        or use an unsupported PDF feature.
+      </p>
+      <a href="/" class="retry-btn">← Try Another File</a>
+    </div>
+
+  </main>
+
+  <footer class="page-footer">
+    PDFShield v0.1 &nbsp;·&nbsp;
+    <a href="/api/v1/health" target="_blank" rel="noopener">API Health</a>
+  </footer>
+
+  <script>
+    /* ── Config ─────────────────────────────────────────────── */
+    const JOB_ID        = "{{ job_id }}";
+    const POLL_MS       = 1500;
+    const STEP_DELAY_MS = 480;
+    const TOTAL_STEPS   = 6;
+
+    /* ── Step animation ─────────────────────────────────────── */
+    let currentStep = 0;
+    let stepTimer   = null;
+
+    function activateStep(i) {
+      const el = document.getElementById('step-' + i);
+      if (!el) return;
+      /* mark previous steps done */
+      for (let k = 0; k < i; k++) {
+        const prev = document.getElementById('step-' + k);
+        if (prev) { prev.classList.remove('active'); prev.classList.add('done');
+          prev.querySelector('.step-dot').textContent = '✓'; }
+      }
+      el.classList.add('active');
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function advanceStep() {
+      if (currentStep < TOTAL_STEPS) {
+        activateStep(currentStep++);
+        if (currentStep < TOTAL_STEPS)
+          stepTimer = setTimeout(advanceStep, STEP_DELAY_MS);
+      }
+    }
+
+    function markAllDone() {
+      clearTimeout(stepTimer);
+      for (let i = 0; i < TOTAL_STEPS; i++) {
+        const el = document.getElementById('step-' + i);
+        if (el) {
+          el.classList.remove('active');
+          el.classList.add('done');
+          el.querySelector('.step-dot').textContent = '✓';
+        }
+      }
+    }
+
+    function showFailed() {
+      clearTimeout(stepTimer);
+      document.getElementById('processing-state').style.display = 'none';
+      const f = document.getElementById('failed-state');
+      f.classList.add('visible');
+    }
+
+    /* ── Kick off step animation immediately ────────────────── */
+    setTimeout(advanceStep, 200);
+
+    /* ── Status polling ─────────────────────────────────────── */
+    let pollTimer = null;
+
+    async function poll() {
+      try {
+        const resp = await fetch('/api/v1/status/' + JOB_ID);
+        if (!resp.ok) { showFailed(); return; }
+
+        const data = await resp.json();
+
+        if (data.status === 'COMPLETED') {
+          markAllDone();
+          /* brief pause so the user sees the completed state */
+          setTimeout(() => { window.location.href = '/report/' + JOB_ID; }, 450);
+          return;
+        }
+
+        if (data.status === 'FAILED') { showFailed(); return; }
+
+        /* PENDING / PROCESSING — keep polling */
+        pollTimer = setTimeout(poll, POLL_MS);
+
+      } catch (_) {
+        /* network hiccup — back-off then retry */
+        pollTimer = setTimeout(poll, POLL_MS * 2);
+      }
+    }
+
+    /* Start first poll after one interval so the animation gets a head-start */
+    pollTimer = setTimeout(poll, POLL_MS);
+  </script>
+
+</body>
+</html>

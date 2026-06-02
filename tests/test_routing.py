@@ -295,3 +295,91 @@ def test_upload_oversized_error_mentions_limit():
     big = b"%PDF-1.4\n" + b"A" * (10 * 1024 * 1024 + 1)
     detail = _upload("big.pdf", big, "application/pdf").json()["detail"].lower()
     assert "limit" in detail or "10 mb" in detail
+
+
+# ---------------------------------------------------------------------------
+# F. Page routes — GET /processing/{job_id} and GET /report/{job_id}
+# ---------------------------------------------------------------------------
+
+def test_processing_page_returns_200_for_known_job():
+    _, jid = _upload_and_get_id()
+    resp = client.get(f"/processing/{jid}")
+    assert resp.status_code == 200
+
+
+def test_processing_page_content_type_is_html():
+    _, jid = _upload_and_get_id()
+    resp = client.get(f"/processing/{jid}")
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_processing_page_contains_pdfshield_brand():
+    _, jid = _upload_and_get_id()
+    assert "PDFShield" in client.get(f"/processing/{jid}").text
+
+
+def test_processing_page_contains_job_id_for_polling():
+    _, jid = _upload_and_get_id()
+    assert jid in client.get(f"/processing/{jid}").text
+
+
+def test_processing_page_contains_filename():
+    _, jid = _upload_and_get_id("invoice.pdf")
+    assert "invoice.pdf" in client.get(f"/processing/{jid}").text
+
+
+def test_processing_page_404_for_unknown_job():
+    assert client.get(f"/processing/{uuid.uuid4()}").status_code == 404
+
+
+def test_report_page_returns_200_for_completed_job():
+    _, jid = _upload_and_get_id()
+    resp = client.get(f"/report/{jid}")
+    assert resp.status_code == 200
+
+
+def test_report_page_content_type_is_html():
+    _, jid = _upload_and_get_id()
+    resp = client.get(f"/report/{jid}")
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_report_page_contains_pdfshield_brand():
+    _, jid = _upload_and_get_id()
+    assert "PDFShield" in client.get(f"/report/{jid}").text
+
+
+def test_report_page_contains_filename():
+    _, jid = _upload_and_get_id("audit_doc.pdf")
+    assert "audit_doc.pdf" in client.get(f"/report/{jid}").text
+
+
+def test_report_page_contains_download_link():
+    _, jid = _upload_and_get_id()
+    text = client.get(f"/report/{jid}").text
+    assert "/api/v1/export/" in text
+
+
+def test_report_page_contains_risk_banner():
+    _, jid = _upload_and_get_id()
+    text = client.get(f"/report/{jid}").text
+    assert any(cls in text for cls in ("risk-green", "risk-yellow", "risk-red"))
+
+
+def test_report_page_contains_analysis_breakdown():
+    _, jid = _upload_and_get_id()
+    assert "Analysis Breakdown" in client.get(f"/report/{jid}").text
+
+
+def test_report_page_404_for_unknown_job():
+    assert client.get(f"/report/{uuid.uuid4()}").status_code == 404
+
+
+def test_report_page_redirects_pending_job_to_processing():
+    """A job that has not yet completed must redirect to the processing page."""
+    from app.db.jobs import create_job
+    jid = str(uuid.uuid4())
+    create_job(jid, "pending.pdf")  # PENDING, never ran
+    resp = client.get(f"/report/{jid}", follow_redirects=False)
+    assert resp.status_code in (302, 307)
+    assert f"/processing/{jid}" in resp.headers.get("location", "")

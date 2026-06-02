@@ -20,10 +20,11 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.db.jobs import COMPLETED, create_job, get_job
+from app.models.schemas import ForensicReport
 from app.services.analysis_task import run_analysis_task
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,52 @@ page_router = APIRouter()
 @page_router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index_page(request: Request):
     return templates.TemplateResponse(request, "index.html")
+
+
+@page_router.get("/processing/{job_id}", response_class=HTMLResponse, include_in_schema=False)
+async def processing_page(request: Request, job_id: str):
+    """
+    Render the processing-state page for *job_id*.
+
+    The page polls ``GET /api/v1/status/{job_id}`` and auto-redirects to
+    ``/report/{job_id}`` once the job completes.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    return templates.TemplateResponse(
+        request,
+        "processing.html",
+        {"job_id": job_id, "filename": job["filename"], "status": job["status"]},
+    )
+
+
+@page_router.get("/report/{job_id}", response_class=HTMLResponse, include_in_schema=False)
+async def report_page(request: Request, job_id: str):
+    """
+    Render the completed forensic report for *job_id*.
+
+    Redirects back to ``/processing/{job_id}`` if the job has not yet
+    finished so the user can watch the polling animation.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    if job["status"] != COMPLETED:
+        return RedirectResponse(url=f"/processing/{job_id}")
+    report = ForensicReport.model_validate_json(job["results_json"])
+    return templates.TemplateResponse(
+        request,
+        "report.html",
+        {
+            "report":        report,
+            "job_id":        job_id,
+            "filename":      job["filename"],
+            "annotated_url": job.get("annotated_url"),
+            "check_labels":  dict(CHECK_LABELS),
+            "check_icons":   dict(CHECK_ICONS),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

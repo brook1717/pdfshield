@@ -370,6 +370,88 @@
       margin-top: .15rem;
     }
 
+    /* ── Annotation card ────────────────────────────────────── */
+    .annotation-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--s-danger);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 1.75rem;
+    }
+    .annotation-header {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--s-danger-bg);
+      flex-wrap: wrap;
+    }
+    .annotation-icon { font-size: 1.3rem; flex-shrink: 0; }
+    .annotation-title {
+      flex: 1;
+      font-size: .95rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .annotation-badge {
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: .25rem .65rem;
+      border-radius: var(--radius-xs);
+      border: 1.5px solid var(--s-danger-b);
+      color: var(--s-danger);
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .annotation-body { padding: 1.25rem; }
+    .annotation-caption {
+      font-size: .82rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      line-height: 1.55;
+      display: flex;
+      align-items: flex-start;
+      gap: .45rem;
+    }
+    .annotation-caption-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--s-danger);
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+    .annotation-image-wrap {
+      border-radius: var(--radius-xs);
+      overflow: auto;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      max-height: 68vh;
+      text-align: center;
+    }
+    .annotation-image {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    .annotation-open {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      margin-top: .85rem;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--s-info);
+      text-decoration: none;
+    }
+    .annotation-open:hover { text-decoration: underline; }
+
     /* ── Responsive ─────────────────────────────────────────── */
     @media (max-width: 720px) {
       .risk-banner { flex-direction: column; text-align: center; gap: 1rem; }
@@ -394,8 +476,8 @@
       <span>Report for</span> {{ filename }}
     </span>
     <a class="download-btn"
-       href="/api/v1/export/{{ file_id }}"
-       download="pdfshield-{{ file_id[:8] }}.json">
+       href="/api/v1/export/{{ job_id }}"
+       download="pdfshield-{{ job_id[:8] }}.json">
       ⬇ Download JSON
     </a>
   </nav>
@@ -478,6 +560,34 @@
         <span class="stat-label">Warnings</span>
       </div>
     </div>
+
+    <!-- ── Annotated visual card (only rendered when annotation PNG exists) ── -->
+    {% if annotated_url %}
+    <div class="annotation-card">
+      <div class="annotation-header">
+        <span class="annotation-icon">📍</span>
+        <span class="annotation-title">Annotated Document View</span>
+        <span class="annotation-badge">Visual Evidence</span>
+      </div>
+      <div class="annotation-body">
+        <p class="annotation-caption">
+          <span class="annotation-caption-dot"></span>
+          Red-highlighted regions mark the <strong>exact page coordinates</strong> where
+          forensic anomalies were detected — font mismatches, invisible overlays, or
+          irregular character spacing.
+        </p>
+        <div class="annotation-image-wrap">
+          <img src="{{ annotated_url }}"
+               alt="Annotated PDF page with detected anomaly regions highlighted in red"
+               class="annotation-image"
+               loading="lazy" />
+        </div>
+        <a class="annotation-open" href="{{ annotated_url }}" target="_blank" rel="noopener">
+          🔎 Open full-size image ↗
+        </a>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- ── Analysis breakdown ─────────────────────────────────── -->
     <p class="section-header">Analysis Breakdown</p>
