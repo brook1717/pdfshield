@@ -23,9 +23,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
 from app.api.endpoints import page_router, router
 from app.db.jobs import init_db
+from app.middleware.rate_limit import limiter
 
 # ---------------------------------------------------------------------------
 # Runtime directories — created eagerly so the logging file handler can open
@@ -118,12 +124,64 @@ async def lifespan(app: FastAPI):  # type: ignore[override]
     logger.info("PDFShield shutting down")
 
 
+# ---------------------------------------------------------------------------
+# Security headers middleware
+# ---------------------------------------------------------------------------
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Append hardened HTTP security headers to every outgoing response.
+
+    Headers applied
+    ---------------
+    * ``X-Content-Type-Options: nosniff`` — prevent MIME-sniffing.
+    * ``X-Frame-Options: DENY`` — disallow framing (clickjacking guard).
+    * ``Content-Security-Policy`` — restrict resource origins.
+    * ``Referrer-Policy`` — limit referrer leakage.
+    * ``X-XSS-Protection: 0`` — disable the legacy XSS auditor
+      (modern browsers use CSP instead; the auditor can be exploited).
+
+    .. note::
+        The CSP includes ``'unsafe-inline'`` for scripts and styles because
+        the Jinja2 templates use inline ``<script>`` and ``<style>`` blocks.
+        Migrating to external bundles would allow removing ``'unsafe-inline'``.
+    """
+
+    _CSP: str = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'"
+    )
+
+    def __init__(self, app: ASGIApp) -> None:
+        super().__init__(app)
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"]   = "nosniff"
+        response.headers["X-Frame-Options"]           = "DENY"
+        response.headers["Content-Security-Policy"]   = self._CSP
+        response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"]          = "0"
+        return response
+
+
 app = FastAPI(
     title="pdfshield",
     description="PDF forensic analysis and risk detection API",
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,6 +190,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ---------------------------------------------------------------------------
 # Error-boundary helpers

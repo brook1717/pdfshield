@@ -24,8 +24,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.db.jobs import COMPLETED, create_job, get_job
+from app.middleware.rate_limit import limiter
 from app.models.schemas import ForensicReport
 from app.services.analysis_task import run_analysis_task
+from app.utils.secure_filename import secure_filename
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,7 @@ async def health_check():
     tags=["analysis"],
     summary="Submit a PDF for asynchronous forensic analysis",
 )
+@limiter.limit("5/minute")
 async def upload_and_analyze(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -163,13 +166,16 @@ async def upload_and_analyze(
             detail=f"File size {len(contents)} bytes exceeds the 10 MB limit.",
         )
 
-    filename = file.filename or "document.pdf"
+    filename = secure_filename(file.filename or "document.pdf")
     job_id   = str(uuid.uuid4())
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOADS_DIR / f"{job_id}.pdf"
     dest.write_bytes(contents)
-
-    create_job(job_id, filename)
+    try:
+        create_job(job_id, filename)
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
     background_tasks.add_task(run_analysis_task, job_id, str(dest), filename)
 
     logger.info("upload: queued job_id=%s filename=%s", job_id, filename)

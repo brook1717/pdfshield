@@ -17,6 +17,23 @@ def pdf_fixtures() -> dict[str, Path]:
     return generate_all(FIXTURES_DIR)
 
 
+@pytest.fixture(autouse=True)
+def _disable_rate_limiter():
+    """
+    Disable the slowapi rate limiter for every test.
+
+    Tests in ``test_security.py`` that specifically exercise rate-limiting
+    behaviour re-enable the limiter locally inside the test function and reset
+    the storage after they finish.
+    """
+    from app.middleware.rate_limit import limiter
+
+    original = limiter.enabled
+    limiter.enabled = False
+    yield
+    limiter.enabled = original
+
+
 @pytest.fixture(scope="session")
 def clean_pdf_path(pdf_fixtures: dict[str, Path]) -> Path:
     return pdf_fixtures["clean"]

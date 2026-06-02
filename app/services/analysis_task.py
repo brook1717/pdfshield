@@ -16,6 +16,7 @@ during heavy PyMuPDF / pdfplumber processing.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from app.db.jobs import COMPLETED, FAILED, PROCESSING, update_job
 from app.services.risk_engine import run_forensic_pipeline
@@ -49,6 +50,7 @@ def run_analysis_task(job_id: str, file_path: str, filename: str) -> None:
     logger.info("task[%s]: starting analysis for '%s'", job_id, filename)
     update_job(job_id, status=PROCESSING)
 
+    _failed = True
     try:
         report       = run_forensic_pipeline(file_path)
         annotated    = annotate_pdf_anomalies(file_path, report.findings) or None
@@ -64,6 +66,7 @@ def run_analysis_task(job_id: str, file_path: str, filename: str) -> None:
             "task[%s]: completed — risk=%s annotated=%s",
             job_id, report.risk.color_code, annotated,
         )
+        _failed = False
 
     except Exception as exc:  # noqa: BLE001
         logger.error(
@@ -71,3 +74,13 @@ def run_analysis_task(job_id: str, file_path: str, filename: str) -> None:
             job_id, filename, exc, exc_info=True,
         )
         update_job(job_id, status=FAILED)
+
+    finally:
+        if _failed:
+            try:
+                Path(file_path).unlink(missing_ok=True)
+                logger.debug("task[%s]: removed failed-upload file %s", job_id, file_path)
+            except OSError as exc:
+                logger.warning(
+                    "task[%s]: could not remove upload file %s — %s", job_id, file_path, exc
+                )
