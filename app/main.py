@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.endpoints import page_router, router
+from app.db.jobs import init_db
 
 # ---------------------------------------------------------------------------
 # Runtime directories — created eagerly so the logging file handler can open
@@ -111,6 +112,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[override]
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    init_db()
     logger.info("PDFShield started  — uploads: %s  logs: %s", UPLOADS_DIR, LOGS_DIR)
     yield
     logger.info("PDFShield shutting down")

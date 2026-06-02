@@ -4,25 +4,27 @@ Unified endpoint and page routing layer.
 Routers
 -------
 ``page_router``  (no prefix, included directly in app)
-    GET /                      — Upload workspace (index.html).
+    GET /                          — Upload workspace (index.html).
 
 ``router``       (mounted at /api/v1 by main.py)
-    GET  /health               — Service liveness check.
-    POST /upload               — Accept PDF, run full forensic pipeline,
-                                 render ``report.html`` directly.
-    GET  /export/{file_id}     — Return stored ForensicReport as JSON.
+    GET  /health                   — Service liveness check.
+    POST /upload                   — Accept PDF, write PENDING job record,
+                                     dispatch forensic pipeline as a
+                                     BackgroundTask, return 202 + job_id.
+    GET  /status/{job_id}          — Current job state and result metadata.
+    GET  /export/{job_id}          — Download completed ForensicReport as JSON.
 """
+import json
 import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from app.exceptions import PDFParseError, PDFValidationError
-from app.models.schemas import ForensicReport
-from app.services.risk_engine import run_forensic_pipeline
+from app.db.jobs import COMPLETED, create_job, get_job
+from app.services.analysis_task import run_analysis_task
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +50,6 @@ CHECK_ICONS: dict[str, str] = {
     "hidden_overlay_detection": "\U0001f50d",
 }
 
-# In-memory report store keyed by file_id
-_reports:   dict[str, ForensicReport] = {}
-_filenames: dict[str, str]            = {}
 
 
 # ---------------------------------------------------------------------------
@@ -79,19 +78,26 @@ async def health_check():
 
 @router.post(
     "/upload",
-    response_class=HTMLResponse,
+    status_code=202,
     tags=["analysis"],
-    summary="Upload a PDF and receive the forensic report page",
+    summary="Submit a PDF for asynchronous forensic analysis",
 )
-async def upload_and_analyze(request: Request, file: UploadFile = File(...)):
+async def upload_and_analyze(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
     """
-    Accept a PDF upload, run the full forensic pipeline, and render the
-    ``report.html`` dashboard directly.  No raw JSON is returned to the
-    browser.
+    Accept a PDF upload, write a ``PENDING`` job record, and immediately
+    dispatch the forensic pipeline as a background task.
 
-    Validation errors (wrong type / oversized) still raise
-    :class:`~fastapi.HTTPException` so programmatic callers get a
-    machine-readable 400 response.
+    Returns ``202 Accepted`` with a ``job_id`` that can be polled via
+    ``GET /api/v1/status/{job_id}`` and used to download the report via
+    ``GET /api/v1/export/{job_id}`` once the analysis completes.
+
+    Validation errors (wrong MIME type / oversized file) still raise
+    :class:`~fastapi.HTTPException` ``400`` so callers get a machine-readable
+    error before any disk I/O occurs.
     """
     is_pdf_mime = file.content_type in ALLOWED_MIME
     is_pdf_ext  = (file.filename or "").lower().endswith(".pdf")
@@ -111,94 +117,74 @@ async def upload_and_analyze(request: Request, file: UploadFile = File(...)):
         )
 
     filename = file.filename or "document.pdf"
-    file_id = str(uuid.uuid4())
+    job_id   = str(uuid.uuid4())
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOADS_DIR / f"{file_id}.pdf"
+    dest = UPLOADS_DIR / f"{job_id}.pdf"
     dest.write_bytes(contents)
 
-    try:
-        report = run_forensic_pipeline(str(dest))
-    except PDFParseError:
-        logger.warning(
-            "Unparseable PDF submitted: filename=%s file_id=%s", filename, file_id
-        )
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "error": (
-                    "The PDF could not be parsed — it may be corrupted, "
-                    "password-protected, or not a valid PDF file."
-                )
-            },
-            status_code=422,
-        )
-    except PDFValidationError as exc:
-        logger.warning(
-            "PDF validation failed: filename=%s error=%s", filename, exc
-        )
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {"error": f"PDF validation failed: {exc}"},
-            status_code=422,
-        )
-    except Exception as exc:
-        logger.error(
-            "Pipeline failed: filename=%s file_id=%s error=%s",
-            filename,
-            file_id,
-            exc,
-            exc_info=True,
-        )
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "error": (
-                    "An unexpected error occurred during analysis. "
-                    "The file may be malformed or use unsupported features."
-                )
-            },
-            status_code=500,
-        )
-    _reports[file_id]   = report
-    _filenames[file_id] = filename
+    create_job(job_id, filename)
+    background_tasks.add_task(run_analysis_task, job_id, str(dest), filename)
 
-    return templates.TemplateResponse(
-        request,
-        "report.html",
-        {
-            "report":       report,
-            "file_id":      file_id,
-            "filename":     filename,
-            "check_labels": CHECK_LABELS,
-            "check_icons":  CHECK_ICONS,
-        },
+    logger.info("upload: queued job_id=%s filename=%s", job_id, filename)
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job_id, "status": "PENDING", "filename": filename},
     )
 
 
 @router.get(
-    "/export/{file_id}",
+    "/status/{job_id}",
+    tags=["analysis"],
+    summary="Get the current state of an analysis job",
+)
+async def get_job_status(job_id: str):
+    """
+    Return the current status and result metadata for *job_id*.
+
+    The full report payload is **not** included; use
+    ``GET /api/v1/export/{job_id}`` to download the complete JSON report.
+
+    Raises ``404`` when *job_id* is not recognised.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    return {
+        "job_id":        job["job_id"],
+        "filename":      job["filename"],
+        "status":        job["status"],
+        "risk_level":    job.get("risk_level"),
+        "annotated_url": job.get("annotated_url"),
+        "created_at":    job["created_at"],
+        "updated_at":    job["updated_at"],
+    }
+
+
+@router.get(
+    "/export/{job_id}",
     tags=["export"],
-    summary="Download the raw JSON forensic report",
+    summary="Download the completed ForensicReport as JSON",
     response_class=JSONResponse,
 )
-async def export_report(file_id: str):
+async def export_report(job_id: str):
     """
-    Return the stored :class:`~app.models.schemas.ForensicReport` as a
-    downloadable JSON file for audit logs or external processing.
+    Return the :class:`~app.models.schemas.ForensicReport` for *job_id* as a
+    downloadable JSON attachment for audit logs or external processing.
+
+    Raises ``404`` when *job_id* is not found or the analysis has not yet
+    completed successfully.
     """
-    report = _reports.get(file_id)
-    if not report:
+    job = get_job(job_id)
+    if job is None or job["status"] != COMPLETED or not job.get("results_json"):
         raise HTTPException(
-            status_code=404, detail=f"Report '{file_id}' not found."
+            status_code=404,
+            detail=f"Report '{job_id}' not found or analysis not yet complete.",
         )
     return JSONResponse(
-        content=report.model_dump(),
+        content=json.loads(job["results_json"]),
         headers={
             "Content-Disposition": (
-                f'attachment; filename="pdfshield-{file_id[:8]}.json"'
+                f'attachment; filename="pdfshield-{job_id[:8]}.json"'
             )
         },
     )

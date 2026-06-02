@@ -34,25 +34,29 @@ def _upload(filename: str, content: bytes, content_type: str):
 # Success cases
 # ---------------------------------------------------------------------------
 
-def test_upload_valid_pdf_returns_200():
+def test_upload_valid_pdf_returns_202():
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    assert response.status_code == 200
+    assert response.status_code == 202
 
 
-def test_upload_valid_pdf_returns_html():
+def test_upload_valid_pdf_returns_json():
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    assert "text/html" in response.headers["content-type"]
-    assert "PDFShield" in response.text
+    assert "application/json" in response.headers["content-type"]
 
 
-def test_upload_report_contains_risk_badge():
+def test_upload_response_has_job_id():
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    assert any(c in response.text for c in ("risk-green", "risk-yellow", "risk-red"))
+    assert "job_id" in response.json()
+
+
+def test_upload_response_status_is_pending():
+    response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
+    assert response.json()["status"] == "PENDING"
 
 
 def test_upload_preserves_original_filename():
     response = _upload("my_document.pdf", MINIMAL_PDF, "application/pdf")
-    assert "my_document.pdf" in response.text
+    assert response.json()["filename"] == "my_document.pdf"
 
 
 def test_upload_file_is_saved_on_disk():
@@ -64,16 +68,14 @@ def test_upload_file_is_saved_on_disk():
 def test_upload_pdf_extension_accepted_with_octet_stream_mime():
     """A .pdf file sent with application/octet-stream must still be accepted."""
     response = _upload("report.pdf", MINIMAL_PDF, "application/octet-stream")
-    assert response.status_code == 200
+    assert response.status_code == 202
 
 
-def test_upload_file_id_is_valid_uuid():
-    import re
+def test_upload_job_id_is_valid_uuid():
     import uuid
     response = _upload("sample.pdf", MINIMAL_PDF, "application/pdf")
-    match = re.search(r'/api/v1/export/([0-9a-f-]{36})', response.text)
-    assert match, "export link with UUID not found in HTML report"
-    uuid.UUID(match.group(1))  # raises ValueError if not a valid UUID
+    job_id = response.json().get("job_id", "")
+    uuid.UUID(job_id)  # raises ValueError if not a valid UUID
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +105,7 @@ def test_upload_docx_rejected():
 def test_upload_wrong_extension_with_pdf_mime_accepted():
     """Content-type wins: application/pdf should still be accepted even with a mismatched extension."""
     response = _upload("file.bin", MINIMAL_PDF, "application/pdf")
-    assert response.status_code == 200
+    assert response.status_code == 202
 
 
 # ---------------------------------------------------------------------------

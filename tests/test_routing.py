@@ -2,13 +2,19 @@
 Integration tests for the unified endpoint routing layer (app/api/endpoints.py).
 
 All tests use FastAPI's TestClient and exercise the real application stack
-end-to-end (templates, pipeline, in-memory store).
+end-to-end (templates, pipeline, SQLite job store).
+
+Note on BackgroundTasks and TestClient
+---------------------------------------
+Starlette's TestClient runs BackgroundTasks synchronously before returning the
+HTTP response.  This means polling GET /status/{job_id} immediately after
+POST /upload will already see COMPLETED (or FAILED) status.
 
 Test matrix
 -----------
-A. GET /         — upload workspace (index.html)
-B. POST /api/v1/upload  — pipeline execution + report.html rendering
-C. GET /api/v1/export/{file_id}  — JSON forensic report download
+A. GET /              — upload workspace (index.html)
+B. POST /api/v1/upload  — 202 Accepted + async job dispatch
+C. GET /api/v1/export/{job_id}  — JSON forensic report download
 D. GET /api/v1/health   — service liveness
 E. Error handling
 """
@@ -49,19 +55,13 @@ def _upload(filename: str = "sample.pdf",
     )
 
 
-def _extract_file_id(html: str) -> str | None:
-    """Pull the file_id UUID out of the export link embedded in report.html."""
-    m = re.search(r'/api/v1/export/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', html)
-    return m.group(1) if m else None
-
-
 def _upload_and_get_id(filename: str = "sample.pdf") -> tuple:
-    """Return (response, file_id) for a successful upload."""
+    """Return (response, job_id) for a successful upload."""
     resp = _upload(filename)
-    assert resp.status_code == 200, f"upload failed with {resp.status_code}"
-    fid = _extract_file_id(resp.text)
-    assert fid, "export link with file_id not found in HTML"
-    return resp, fid
+    assert resp.status_code == 202, f"upload failed with {resp.status_code}"
+    job_id = resp.json().get("job_id", "")
+    assert job_id, "job_id not found in upload response"
+    return resp, job_id
 
 
 # ---------------------------------------------------------------------------
@@ -99,80 +99,63 @@ def test_root_has_file_input():
 
 
 # ---------------------------------------------------------------------------
-# B. POST /api/v1/upload — pipeline + HTML rendering
+# B. POST /api/v1/upload — 202 Accepted + async job dispatch
 # ---------------------------------------------------------------------------
 
-def test_upload_returns_200():
-    assert _upload().status_code == 200
+def test_upload_returns_202():
+    assert _upload().status_code == 202
 
 
-def test_upload_response_is_html():
+def test_upload_response_is_json():
     resp = _upload()
-    assert "text/html" in resp.headers["content-type"]
+    assert "application/json" in resp.headers["content-type"]
 
 
-def test_upload_report_has_pdfshield_brand():
-    assert "PDFShield" in _upload().text
+def test_upload_response_has_job_id():
+    assert "job_id" in _upload().json()
 
 
-def test_upload_report_has_risk_banner():
-    text = _upload().text
-    assert any(cls in text for cls in ("risk-green", "risk-yellow", "risk-red"))
+def test_upload_job_id_is_valid_uuid():
+    _, jid = _upload_and_get_id()
+    uuid.UUID(jid)  # raises ValueError if malformed
 
 
-def test_upload_report_has_download_json_button():
-    assert "Download JSON" in _upload().text
+def test_upload_response_initial_status_is_pending():
+    resp = _upload()
+    assert resp.json()["status"] == "PENDING"
 
 
-def test_upload_report_export_link_present():
-    assert "/api/v1/export/" in _upload().text
-
-
-def test_upload_report_export_link_contains_valid_uuid():
-    _, fid = _upload_and_get_id()
-    uuid.UUID(fid)  # raises ValueError if malformed
-
-
-def test_upload_report_contains_original_filename():
+def test_upload_response_contains_filename():
     resp = _upload("forensic_invoice.pdf")
-    assert "forensic_invoice.pdf" in resp.text
+    assert resp.json()["filename"] == "forensic_invoice.pdf"
 
 
-def test_upload_report_has_check_section():
-    text = _upload().text
-    assert "Analysis Breakdown" in text
+def test_upload_job_completes_after_background_task():
+    """BackgroundTasks run synchronously in TestClient before call returns."""
+    _, jid = _upload_and_get_id()
+    status_data = client.get(f"/api/v1/status/{jid}").json()
+    assert status_data["status"] == "COMPLETED"
 
 
-def test_upload_report_has_status_pills():
-    text = _upload().text
-    assert any(s in text for s in ("INFO", "WARNING", "DANGER"))
+def test_upload_completed_job_has_valid_risk_level():
+    _, jid = _upload_and_get_id()
+    status_data = client.get(f"/api/v1/status/{jid}").json()
+    assert status_data["risk_level"] in ("GREEN", "YELLOW", "RED")
 
 
-def test_upload_report_has_five_check_cards():
-    text = _upload().text
-    check_names = [
-        "Metadata Analysis",
-        "Text Layer",
-        "Font Consistency",
-        "Coordinate Alignment",
-        "Overlay Detection",
-    ]
-    for name in check_names:
-        assert name in text, f"Check card '{name}' not found in report"
+def test_upload_completed_job_has_timestamps():
+    _, jid = _upload_and_get_id()
+    data = client.get(f"/api/v1/status/{jid}").json()
+    assert data["created_at"]
+    assert data["updated_at"]
 
 
-def test_upload_report_has_back_link():
-    assert "New Analysis" in _upload().text
-
-
-def test_upload_report_stats_row_present():
-    text = _upload().text
-    assert "Checks Run" in text
-
-
-def test_upload_report_conclusion_present():
-    text = _upload().text
-    assert any(phrase in text for phrase in ("authentic", "review", "tampering"))
+def test_upload_file_saved_to_uploads_dir():
+    import re
+    from pathlib import Path
+    _upload()
+    uploads = Path(__file__).resolve().parents[1] / "uploads"
+    assert any(uploads.glob("*.pdf"))
 
 
 # ---------------------------------------------------------------------------

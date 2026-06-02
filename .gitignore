@@ -52,3 +52,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# SQLite job-tracking database
+pdfshield.db
+
+# Generated annotation PNGs
+app/static/annotated/*.png
